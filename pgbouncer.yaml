@@ -3,24 +3,26 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: pgbouncer-secret-userlist-txt
+  namespace: pgbouncer
   labels:
     app: pgbouncer
 type: Opaque
 data:
   userlist.txt: |-
-    CiJkYnVzZXIiICJub3RhZ29vZHBhc3N3b3JkIg==
+    InBvc3RncmVzIiAicGFzc3dvcmQi
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: pgbouncer-config
+  namespace: pgbouncer
   labels:
     app: pgbouncer
 data:
   pgbouncer.ini: |-
     ;; database name = 1
     [databases]
-    postgres = host=postgresql-internal port=5432 user=dbuser  dbname=postgres
+    postgres = host=postgresql-service port=5432 user=postgres  dbname=postgres
     
     
     [pgbouncer]
@@ -60,7 +62,7 @@ data:
     auth_query = SELECT * FROM pgbouncer.get_auth($1)
     
     ;;; Users allowed into database 'pgbouncer'
-    admin_users = dbuser
+    admin_users = postgres
     stats_users = dbuser, stats, root, monitor
     
     ;;; Pooler personality
@@ -141,6 +143,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: pgbouncer
+  namespace: pgbouncer
   labels:
     app: pgbouncer
 spec:
@@ -154,11 +157,11 @@ spec:
       name: postgres
 ---
 
-kind: Deployment
 apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: pgbouncer
-  namespace: default
+  name: pgbouncer-dep
+  namespace: pgbouncer
   labels:
     app: pgbouncer
 spec:
@@ -168,7 +171,6 @@ spec:
       app: pgbouncer
   template:
     metadata:
-      creationTimestamp: null
       labels:
         app: pgbouncer
     spec:
@@ -179,41 +181,34 @@ spec:
             items:
               - key: userlist.txt
                 path: userlist.txt
-            defaultMode: 420
         - name: config
           configMap:
             name: pgbouncer-config
             items:
               - key: pgbouncer.ini
                 path: pgbouncer.ini
-            defaultMode: 420
       containers:
         - name: pgbouncer
-          image: cradlepoint/pgbouncer:1.0.1
+          image: "cradlepoint/pgbouncer:1.0.1"
+          imagePullPolicy: Always
           ports:
             - name: pgbouncer
               containerPort: 5432
-              protocol: TCP
-          resources: {}
-          volumeMounts:
-            - name: userssecret
-              readOnly: true
-              mountPath: /etc/pgbouncer.d
-            - name: config
-              readOnly: true
-              mountPath: /etc/pgbouncer
-          livenessProbe:
+          readinessProbe:
             tcpSocket:
               port: 5432
-          readinessProbe:
+          livenessProbe:
             tcpSocket:
               port: 5432
           lifecycle:
             preStop:
               exec:
-                command:
-                  - /bin/sh
-                  - '-c'
-                  - sleep 5
-          imagePullPolicy: Always
-      restartPolicy: Always
+                # https://freecontent.manning.com/handling-client-requests-properly-with-kubernetes/
+                command: ["/bin/sh","-c","sleep 5"]
+          volumeMounts:
+            - name: userssecret
+              mountPath: /etc/pgbouncer.d
+              readOnly: true
+            - name: config
+              mountPath: /etc/pgbouncer
+              readOnly: true
