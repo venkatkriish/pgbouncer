@@ -154,22 +154,21 @@ spec:
       name: postgres
 ---
 
-apiVersion: apps/v1
 kind: Deployment
+apiVersion: apps/v1
 metadata:
   name: pgbouncer
+  namespace: default
   labels:
     app: pgbouncer
 spec:
-  strategy:
-    rollingUpdate:
-      maxUnavailable: 0
   replicas: 1
   selector:
     matchLabels:
       app: pgbouncer
   template:
     metadata:
+      creationTimestamp: null
       labels:
         app: pgbouncer
     spec:
@@ -180,41 +179,41 @@ spec:
             items:
               - key: userlist.txt
                 path: userlist.txt
+            defaultMode: 420
         - name: config
           configMap:
             name: pgbouncer-config
             items:
               - key: pgbouncer.ini
                 path: pgbouncer.ini
+            defaultMode: 420
       containers:
         - name: pgbouncer
-          image: "cradlepoint/pgbouncer:1.0.1"
-          imagePullPolicy: Always
+          image: cradlepoint/pgbouncer:1.0.1
           ports:
             - name: pgbouncer
               containerPort: 5432
-          readinessProbe:
+              protocol: TCP
+          resources: {}
+          volumeMounts:
+            - name: userssecret
+              readOnly: true
+              mountPath: /etc/pgbouncer.d
+            - name: config
+              readOnly: true
+              mountPath: /etc/pgbouncer
+          livenessProbe:
             tcpSocket:
               port: 5432
-          livenessProbe:
+          readinessProbe:
             tcpSocket:
               port: 5432
           lifecycle:
             preStop:
               exec:
-                # https://freecontent.manning.com/handling-client-requests-properly-with-kubernetes/
-                command: ["/bin/sh","-c","sleep 5"]
-          volumeMounts:
-            - name: userssecret
-              mountPath: /etc/pgbouncer.d
-              readOnly: true
-            - name: config
-              mountPath: /etc/pgbouncer
-              readOnly: true
-          resources:
-             requests:
-               memory:  "2048Mi"
-               cpu: "4028m"
-             limits:
-               memory: "2048Mi"
-               cpu: "4028m"
+                command:
+                  - /bin/sh
+                  - '-c'
+                  - sleep 5
+          imagePullPolicy: Always
+      restartPolicy: Always
